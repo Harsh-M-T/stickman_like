@@ -24,6 +24,7 @@ export function buildAnimationsConfig(character) {
             loop: cfg.loop,
             imageKeys,
             drawOffsetY: cfg.drawOffsetY,
+            color: cfg.color ?? character.spriteColor,
         };
     }
     return result;

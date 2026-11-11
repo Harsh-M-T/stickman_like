@@ -7,16 +7,19 @@
  * a catch-up burst after tab switches or pauses.
  *
  * `update` is called at least zero times per rAF, exactly once per 16.67 ms
- * of elapsed time. `render` is called once per rAF.
+ * of elapsed time. `render` is called once per rAF. A `timeScale` < 1 slows
+ * both logic and rendering (used for the KO slow-motion sequence).
  */
 export default class GameLoop {
     /**
-     * @param {{ update: () => void, render: () => void, stepMs?: number }} opts
+     * @param {{ update: () => void, render: () => void, stepMs?: number, ctx?: CanvasRenderingContext2D, timeScale?: number }} opts
      */
-    constructor({ update, render, stepMs = 1000 / 60 }) {
+    constructor({ update, render, stepMs = 1000 / 60, ctx = null, timeScale = 1 } = {}) {
         this._update = update;
         this._render = render;
+        this._ctx = ctx;
         this._stepMs = stepMs;
+        this._timeScale = timeScale;
 
         this._accumulator = 0;
         this._lastTime = null;
@@ -50,22 +53,43 @@ export default class GameLoop {
         this._accumulator = 0;
     }
 
+    set timeScale(v) { this._timeScale = v; }
+
+    get timeScale() { return this._timeScale; }
+
+    /** Slow-motion helper (KO sequence). */
+    setTimeScale(v) { this._timeScale = v; }
+
     _tick(timestamp) {
         if (!this._running) return;
 
-        if (this._lastTime !== null) {
-            let frameMs = timestamp - this._lastTime;
-            if (frameMs > 250) frameMs = 250; // clamp big gaps (background tab / resume)
-            this._accumulator += frameMs;
+        try {
+            if (this._lastTime !== null) {
+                let frameMs = timestamp - this._lastTime;
+                if (frameMs > 250) frameMs = 250; // clamp big gaps (background tab / resume)
+                this._accumulator += frameMs;
 
-            while (this._accumulator >= this._stepMs) {
-                this._update();
-                this._accumulator -= this._stepMs;
+                const stepMs = this._stepMs * this._timeScale;
+                while (this._accumulator >= stepMs) {
+                    this._update();
+                    this._accumulator -= stepMs;
+                }
             }
-        }
-        this._lastTime = timestamp;
+            this._lastTime = timestamp;
 
-        this._render();
+            if (this._timeScale < 1 && this._ctx) {
+                this._ctx.save();
+                this._ctx.scale(this._timeScale, this._timeScale);
+            }
+            this._render();
+            if (this._timeScale < 1 && this._ctx) {
+                this._ctx.restore();
+            }
+        } catch (err) {
+            // An uncaught error here used to silently kill the rAF chain —
+            // freezing the fight with idle fighters and no visible cause.
+            console.error('[GameLoop] Tick error (update/render skipped this frame):', err);
+        }
         this._rafId = requestAnimationFrame(this._boundTick);
     }
 }

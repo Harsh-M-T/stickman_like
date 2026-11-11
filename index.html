@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="description"
         content="Stickman Fighter, a fast-paced 1v1 stickman brawler with smart AI. Play on desktop or mobile." />
     <title>Stickman Fighter</title>
@@ -23,7 +23,7 @@
     <div id="gameContainer">
         <canvas id="gameCanvas"></canvas>
 
-        <!-- In-game pause button -->
+        <!--  In-game pause button -->
         <button id="pauseButton" class="pause-button hidden" aria-label="Pause">❚❚</button>
 
         <!--  Main Menu  -->
@@ -34,6 +34,50 @@
                 <button id="settingsButton">Settings</button>
                 <button id="instructionsButton">About</button>
             </nav>
+        </div>
+
+        <!--  Character Select  -->
+        <div id="characterSelectScreen" class="screen hidden">
+            <h1>Choose Your Fighter</h1>
+            <div id="characterCards" class="char-grid"></div>
+            <button id="randomSelectButton">🎲 Random Select</button>
+            <button id="toStageButton">Continue →</button>
+            <button id="backToMenuFromCharsButton">Back to Menu</button>
+        </div>
+
+        <!--  Stage Select  -->
+        <div id="stageSelectScreen" class="screen hidden">
+            <h1>Choose the Stage</h1>
+            <div id="stageCards" class="stage-grid">
+                <button class="stage-card" data-stage="street">Neon Street</button>
+                <button class="stage-card" data-stage="parliament">Parliament</button>
+                <button class="stage-card" data-stage="protest">Protest Grounds</button>
+            </div>
+            <button id="backToCharsButton">Back</button>
+        </div>
+
+        <!--  Difficulty Select  -->
+        <div id="difficultyScreen" class="screen hidden">
+            <h1>Choose Difficulty</h1>
+            <div class="diff-grid">
+                <button id="easyButton" class="diff-card">
+                    <div class="diff-name">Easy</div>
+                    <div class="diff-desc">Relaxed AI, forgiving.</div>
+                </button>
+                <button id="normalButton" class="diff-card">
+                    <div class="diff-name">Normal</div>
+                    <div class="diff-desc">Balanced challenge.</div>
+                </button>
+                <button id="hardButton" class="diff-card">
+                    <div class="diff-name">Hard</div>
+                    <div class="diff-desc">Smart blocks, combos, punishes.</div>
+                </button>
+                <button id="bossButton" class="diff-card boss">
+                    <div class="diff-name">Boss</div>
+                    <div class="diff-desc">Atlas — the Colossus. Survive.</div>
+                </button>
+            </div>
+            <button id="backToStageButton">Back</button>
         </div>
 
         <!--  Settings  -->
@@ -67,6 +111,7 @@
                     <option value="easy">Easy</option>
                     <option value="normal" selected>Normal</option>
                     <option value="hard">Hard</option>
+                    <option value="boss">Boss</option>
                 </select>
             </form>
             <button id="settingsBackButton">Back</button>
@@ -85,73 +130,46 @@
             <div class="about-cards">
                 <div class="about-card">
                     <span class="about-card-title">Win the Match</span>
-                    Defeat your opponent in 2 rounds before they do the same to
-                    you. Defend, punish whiffs, and combo for the win.
+                    Defeat your opponent in 2 rounds before they do the same to you. Defend, punish whiffs, and combo for the win.
                 </div>
                 <div class="about-card">
                     <span class="about-card-title">Difficulty Scales</span>
-                    Easy, Normal, and Hard tune the enemy AI and stats. Harder
-                    enemies hit harder, survive longer, and move faster.
+                    Easy, Normal and Hard tune the enemy AI and stats. Harder enemies hit harder, survive longer, and move faster.
                 </div>
                 <div class="about-card">
                     <span class="about-card-title">Mix It Up</span>
-                    Light punches are fast, heavy punches hit hardest, and sweep
-                    kicks catch blocking opponents low. Block cuts damage by 85%.
+                    Light punches are fast, heavy punches hit hardest, and sweep kicks catch blocking opponents low. Block cuts damage by 85%.
                 </div>
             </div>
 
             <h2>Controls</h2>
             <table class="controls-table">
-                <tr>
-                    <th>Action</th>
-                    <th>Key</th>
-                </tr>
-                <tr>
-                    <td>Move Left</td>
-                    <td><kbd>←</kbd> <kbd>A</kbd></td>
-                </tr>
-                <tr>
-                    <td>Move Right</td>
-                    <td><kbd>→</kbd> <kbd>D</kbd></td>
-                </tr>
-                <tr>
-                    <td>Jump</td>
-                    <td><kbd>↑</kbd> <kbd>W</kbd></td>
-                </tr>
-                <tr>
-                    <td>Light Punch</td>
-                    <td><kbd>J</kbd></td>
-                </tr>
-                <tr>
-                    <td>Heavy Punch</td>
-                    <td><kbd>U</kbd></td>
-                </tr>
-                <tr>
-                    <td>Sweep Kick</td>
-                    <td><kbd>I</kbd></td>
-                </tr>
-                <tr>
-                    <td>Block</td>
-                    <td><kbd>K</kbd> (hold)</td>
-                </tr>
-                <tr>
-                    <td>Pause</td>
-                    <td><kbd>Esc</kbd></td>
-                </tr>
+                <tr><th>Action</th><th>Key</th></tr>
+                <tr><td>Move Left / Right</td><td><kbd>←</kbd> <kbd>A</kbd> / <kbd>→</kbd> <kbd>D</kbd></td></tr>
+                <tr><td>Jump</td><td><kbd>↑</kbd> <kbd>W</kbd></td></tr>
+                <tr><td>Crouch / Low attacks</td><td><kbd>S</kbd></td></tr>
+                <tr><td>Block</td><td>Hold <kbd>←</kbd> / <kbd>→</kbd> (back)</td></tr>
+                <tr><td>Punch (light jab)</td><td><kbd>J</kbd></td></tr>
+                <tr><td>Punch (forward) / Dash Punch</td><td><kbd>→</kbd> + <kbd>J</kbd></td></tr>
+                <tr><td>Kick (light)</td><td><kbd>K</kbd></td></tr>
+                <tr><td>Kick (forward) / Dash Kick</td><td><kbd>→</kbd> + <kbd>K</kbd></td></tr>
+                <tr><td>Sweep</td><td><kbd>↓</kbd> + <kbd>K</kbd></td></tr>
+                <tr><td>Grab</td><td><kbd>I</kbd></td></tr>
+                <tr><td>Super (SHAKTI full)</td><td><kbd>L</kbd> or <kbd>Space</kbd></td></tr>
+                <tr><td>Pause</td><td><kbd>Esc</kbd></td></tr>
             </table>
 
             <h2>Tips</h2>
             <ul class="tips-list">
-                <li>Block reduces incoming damage by 85%.</li>
-                <li>Heavy Punch deals the most damage, save it for when the enemy whiffs.</li>
-                <li>Sweep Kick hits low, good for mix-ups.</li>
+                <li>Block by holding back — it drains a guard meter; guard break leaves you vulnerable.</li>
+                <li>Super is available once the SHAKTI meter is full (built by landing hits and blocking).</li>
+                <li>Heavy punches hit hardest; sweep kicks hit low and knock down.</li>
                 <li>The AI punishes your recovery frames on hard difficulty.</li>
             </ul>
 
             <div class="author-card">
                 <span class="author-name">Nihal</span>
-                <a class="author-link" href="https://github.com/ioNihal/Game2D"
-                    target="_blank" rel="noopener noreferrer">github.com/ioNihal/Game2D</a>
+                <a class="author-link" href="https://github.com/ioNihal/Game2D" target="_blank" rel="noopener noreferrer">github.com/ioNihal/Game2D</a>
                 <p class="author-line">A hobby project by Nihal, exploring game design and web tech.</p>
             </div>
 
@@ -178,13 +196,17 @@
 
         <!--  Mobile Controls  -->
         <div id="mobileControls" class="hidden" aria-label="Mobile controls">
-            <button id="btnLeft" class="touch-button touch-left" aria-label="Move left">◀</button>
-            <button id="btnRight" class="touch-button touch-right" aria-label="Move right">▶</button>
-            <button id="btnJump" class="touch-button touch-jump" aria-label="Jump">▲</button>
-            <button id="btnAttack" class="touch-button touch-attack" aria-label="Light Punch">J</button>
-            <button id="btnHeavy" class="touch-button touch-heavy" aria-label="Heavy Punch">U</button>
-            <button id="btnSweep" class="touch-button touch-sweep" aria-label="Sweep Kick">I</button>
-            <button id="btnBlock" class="touch-button touch-block" aria-label="Block">K</button>
+            <div id="joystick" class="joystick">
+                <div id="joystickBase" class="joystick-base">
+                    <div id="joystickKnob" class="joystick-knob">◉</div>
+                </div>
+            </div>
+            <div class="touch-buttons">
+                <button id="btnPunch" class="touch-button touch-punch" aria-label="Punch">PUNCH</button>
+                <button id="btnKick" class="touch-button touch-kick" aria-label="Kick">KICK</button>
+                <button id="btnGrab" class="touch-button touch-grab" aria-label="Grab">GRAB</button>
+                <button id="btnSuper" class="touch-button touch-super" aria-label="Super">SUPER</button>
+            </div>
         </div>
     </div>
 

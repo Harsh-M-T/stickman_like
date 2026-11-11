@@ -4,8 +4,9 @@ const FRAME_MS = 1000 / 60;
 
 /**
  * MatchSystem — owns match/round state: round number, win counts, the round
- * intro countdown, and the KO delay. All timing is frame-based (1/60 s each)
- * so round transitions are deterministic at any refresh rate — no `setTimeout`.
+ * intro countdown, the round timer, the KO delay and timeout resolution.
+ * All timing is frame-based (1/60 s each) so round transitions are deterministic
+ * at any refresh rate — no `setTimeout`.
  *
  * Phases: 'idle' → 'intro' → 'fighting' → ('koDelay' → 'roundEnd' | 'matchOver')
  *
@@ -13,15 +14,21 @@ const FRAME_MS = 1000 / 60;
  *   match:roundStart  { round }                     — new round begins (intro)
  *   match:fight       { round }                     — intro over, combat begins
  *   match:ko          { winner }                    — a fighter was KO'd (delay starts)
- *   match:roundEnd    { winner, playerWins, enemyWins, round, matchOver }
+ *   match:roundEnd    { winner, playerWins, enemyWins, round, matchOver, timedOut }
  */
 export default class MatchSystem {
     /**
-     * @param {{ bus: import('../core/eventBus.js').default }} deps
+     * @param {{ bus: import('../core/eventBus.js').default, fighters?: object }} deps
      */
-    constructor({ bus }) {
+    constructor({ bus, fighters } = {}) {
         this._bus = bus;
+        this._fighters = fighters ?? null;
         this.reset();
+    }
+
+    /** Wire the fighter entities ({ player, enemy }) for timeout resolution. */
+    setFighters(fighters) {
+        this._fighters = fighters ?? null;
     }
 
     reset() {
@@ -32,19 +39,28 @@ export default class MatchSystem {
         this.winner = null;
         this._introFrames = 0;
         this._koDelayFrames = 0;
+        this._timerMs = 0;
     }
 
     //  Public API
 
     get isIdle() { return this.phase === 'idle'; }
-    get isIntro() { return this.phase === 'intro'; }
     get isFighting() { return this.phase === 'fighting'; }
+    get isIntro() { return this.phase === 'intro'; }
+    get isKODelay() { return this.phase === 'koDelay'; }
     get isRoundEnd() { return this.phase === 'roundEnd'; }
     get isMatchOver() { return this.phase === 'matchOver'; }
     /** A round is settled — fighters should not be updated. */
     get isSettled() { return this.phase === 'roundEnd' || this.phase === 'matchOver'; }
     /** Remaining intro time in ms (for the intro overlay countdown). */
     get introMs() { return this._introFrames * FRAME_MS; }
+    /** Remaining KO delay in frames (for the K.O. banner animation). */
+    get koDelayFrames() { return this._koDelayFrames; }
+    /** Remaining round time in ms (for the HUD countdown). */
+    get timeMs() {
+        if (this.phase !== 'fighting') return CONFIG.roundTimeLimitMs;
+        return Math.max(0, this._timerMs);
+    }
 
     /** Begin a fresh match at round 1. */
     startMatch() {
@@ -71,7 +87,13 @@ export default class MatchSystem {
             this._introFrames--;
             if (this._introFrames <= 0) {
                 this.phase = 'fighting';
+                this._timerMs = CONFIG.roundTimeLimitMs;
                 this._bus.emit('match:fight', { round: this.round });
+            }
+        } else if (this.phase === 'fighting') {
+            this._timerMs -= FRAME_MS;
+            if (this._timerMs <= 0) {
+                this._onTimeout();
             }
         } else if (this.phase === 'koDelay') {
             this._koDelayFrames--;
@@ -99,19 +121,49 @@ export default class MatchSystem {
     }
 
     _resolveRound() {
-        if (this.winner === 'player') this.playerWins++;
-        else this.enemyWins++;
+        const winner = this.winner;
+        if (winner === 'player') this.playerWins++;
+        else if (winner === 'enemy') this.enemyWins++;
 
-        const matchOver = this.playerWins >= CONFIG.roundsToWin
-            || this.enemyWins >= CONFIG.roundsToWin;
+        const matchOver = this.playerWins >= CONFIG.roundsToWin || this.enemyWins >= CONFIG.roundsToWin;
         this.phase = matchOver ? 'matchOver' : 'roundEnd';
 
         this._bus.emit('match:roundEnd', {
-            winner: this.winner,
+            winner,
             playerWins: this.playerWins,
             enemyWins: this.enemyWins,
             round: this.round,
             matchOver,
+            timedOut: false,
         });
+    }
+
+    /** Round timer expired — higher remaining HP wins the round (draw on equal HP). */
+    _onTimeout() {
+        const pHp = this._hp('player');
+        const eHp = this._hp('enemy');
+        const winner = pHp > eHp ? 'player' : (eHp > pHp ? 'enemy' : null);
+
+        if (winner) {
+            if (winner === 'player') this.playerWins++;
+            else this.enemyWins++;
+        }
+
+        const matchOver = this.playerWins >= CONFIG.roundsToWin || this.enemyWins >= CONFIG.roundsToWin;
+        this.phase = matchOver ? 'matchOver' : 'roundEnd';
+
+        this._bus.emit('match:roundEnd', {
+            winner,
+            playerWins: this.playerWins,
+            enemyWins: this.enemyWins,
+            round: this.round,
+            matchOver,
+            timedOut: true,
+        });
+    }
+
+    _hp(id) {
+        const f = this._fighters?.[id];
+        return f ? f.health : 0;
     }
 }

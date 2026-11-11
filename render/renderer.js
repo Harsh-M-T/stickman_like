@@ -53,25 +53,28 @@ export default class Renderer {
      * Draws the arena from ARENA_THEME (configs/arena.js). Every layer can be
      * toggled/restyled via config; an optional backdrop image (asset key
      * 'arena_bg', injected by Game) is drawn behind everything.
+     * @param {CanvasRenderingContext2D} [ctx]
+     * @param {HTMLImageElement|null} [backgroundImage]
+     * @param {object} [theme] — arena theme from configs/arena.js (defaults to the neon arena)
      */
-    drawBackground(ctx = this._ctx, backgroundImage = null) {
+    drawBackground(ctx = this._ctx, backgroundImage = null, theme = ARENA_THEME) {
         const W = CONFIG.canvasWidth;
         const H = CONFIG.canvasHeight;
         const G = CONFIG.groundY;
-        const theme = ARENA_THEME;
+        const th = theme ?? ARENA_THEME;
 
         if (backgroundImage) {
             ctx.drawImage(backgroundImage, 0, 0, W, H);
         }
 
-        this._drawSky(ctx, theme, W, G);
-        this._drawGround(ctx, theme, W, H, G);
-        this._drawFloorLine(ctx, theme, W, G);
+        this._drawSky(ctx, th, W, G);
+        this._drawGround(ctx, th, W, H, G);
+        this._drawFloorLine(ctx, th, W, G);
 
-        if (theme.pillars?.enabled) this._drawPillars(ctx, theme, W, G);
-        if (theme.crowd?.enabled) this._drawCrowd(ctx, theme, W, G);
-        if (theme.grid?.enabled) this._drawGrid(ctx, theme, W, H, G);
-        if (theme.footer?.enabled) this._drawFooter(ctx, theme, W, H, G);
+        if (th.pillars?.enabled) this._drawPillars(ctx, th, W, G);
+        if (th.crowd?.enabled) this._drawCrowd(ctx, th, W, G);
+        if (th.grid?.enabled) this._drawGrid(ctx, th, W, H, G);
+        if (th.footer?.enabled) this._drawFooter(ctx, th, W, H, G);
     }
 
     //  Theme helpers
@@ -83,18 +86,18 @@ export default class Renderer {
         return grad;
     }
 
-    _drawSky(ctx, theme, W, G) {
-        ctx.fillStyle = this._makeVerticalGradient(ctx, 0, G, theme.sky?.colors);
+    _drawSky(ctx, th, W, G) {
+        ctx.fillStyle = this._makeVerticalGradient(ctx, 0, G, th.sky?.colors);
         ctx.fillRect(0, 0, W, G);
     }
 
-    _drawGround(ctx, theme, W, H, G) {
-        ctx.fillStyle = this._makeVerticalGradient(ctx, G, H, theme.ground?.colors);
+    _drawGround(ctx, th, W, H, G) {
+        ctx.fillStyle = this._makeVerticalGradient(ctx, G, H, th.ground?.colors);
         ctx.fillRect(0, G, W, H - G);
     }
 
-    _drawFloorLine(ctx, theme, W, G) {
-        const fl = theme.floorLine ?? {};
+    _drawFloorLine(ctx, th, W, G) {
+        const fl = th.floorLine ?? {};
         ctx.save();
         if (fl.glow) {
             ctx.shadowColor = fl.glow;
@@ -109,24 +112,24 @@ export default class Renderer {
         ctx.restore();
     }
 
-    _drawPillars(ctx, theme, W, G) {
-        for (const col of theme.pillars.columns ?? []) {
+    _drawPillars(ctx, th, W, G) {
+        for (const col of th.pillars.columns ?? []) {
             const x = col.x < 0 ? W + col.x : col.x;
-            this._drawPillar(ctx, theme, x, G, col);
+            this._drawPillar(ctx, th, x, G, col);
         }
     }
 
-    _drawPillar(ctx, theme, x, groundY, col) {
+    _drawPillar(ctx, th, x, groundY, col) {
         const w = col.width ?? 25;
         const h = col.height ?? 160;
         ctx.save();
         const grad = ctx.createLinearGradient(x, groundY - h, x + w, groundY - h);
-        for (const s of theme.pillars.gradient ?? []) grad.addColorStop(s.pos, s.color);
+        for (const s of th.pillars.gradient ?? []) grad.addColorStop(s.pos, s.color);
         ctx.fillStyle = grad;
         ctx.fillRect(x, groundY - h, w, h);
 
         // Neon edge
-        const e = theme.pillars.edge ?? {};
+        const e = th.pillars.edge ?? {};
         if (e.glow) {
             ctx.shadowColor = e.glow;
             ctx.shadowBlur = e.glowBlur ?? 10;
@@ -137,8 +140,8 @@ export default class Renderer {
         ctx.restore();
     }
 
-    _drawCrowd(ctx, theme, W, G) {
-        const c = theme.crowd ?? {};
+    _drawCrowd(ctx, th, W, G) {
+        const c = th.crowd ?? {};
         ctx.save();
         ctx.globalAlpha = c.alpha ?? 0.18;
         ctx.fillStyle = c.color ?? '#4a1d6e';
@@ -153,8 +156,8 @@ export default class Renderer {
         ctx.restore();
     }
 
-    _drawGrid(ctx, theme, W, H, G) {
-        const g = theme.grid ?? {};
+    _drawGrid(ctx, th, W, H, G) {
+        const g = th.grid ?? {};
         ctx.save();
         ctx.globalAlpha = g.alpha ?? 0.12;
         ctx.strokeStyle = g.color ?? '#c084fc';
@@ -175,16 +178,17 @@ export default class Renderer {
         const cols = g.cols ?? 7;
         for (let c = 0; c <= cols; c++) {
             const t = c / cols;
+            const x = W * t;
             ctx.beginPath();
-            ctx.moveTo(W * t, G);
-            ctx.lineTo(W / 2 * (1 - (1 - t * 2 < 0 ? -(t * 2 - 1) : 1 - t * 2)), H);
+            ctx.moveTo(x, G);
+            ctx.lineTo(x, H);
             ctx.stroke();
         }
         ctx.restore();
     }
 
-    _drawFooter(ctx, theme, W, H, G) {
-        const f = theme.footer ?? {};
+    _drawFooter(ctx, th, W, H, G) {
+        const f = th.footer ?? {};
         ctx.fillStyle = f.color ?? '#0d0810';
         const off = f.offsetY ?? 1;
         ctx.fillRect(0, G + off, f.leftWidth ?? 120, H - G - off);

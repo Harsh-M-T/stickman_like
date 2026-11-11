@@ -2,14 +2,13 @@
  * VirtualInput — a lightweight action buffer the AI writes to.
  * Mirrors the InputHandler query interface (isDown / justPressed) so the
  * fighter's state machine works identically whether driven by a human or AI.
+ * Purely state-based: the AI reacts to on-screen fighter state, never to
+ * reading another fighter's input.
  */
 class VirtualInput {
     constructor() {
-        /** @type {Record<string, boolean>} */
         this._held = {};
-        /** @type {Record<string, boolean>} */
         this._justPressed = {};
-        /** @type {Record<string, boolean>} */
         this._prev = {};
     }
 
@@ -28,7 +27,23 @@ class VirtualInput {
     }
 }
 
-//  Per-difficulty tuning defaults (overridden by the enemy's `ai` config block) 
+//  Action names for the AI VirtualInput, keyed by move name (frame data names
+//  like 'jab' / 'straight' / 'sweep' map onto input actions like 'lightPunch').
+const MOVE_TO_ACTION = Object.freeze({
+    jab: 'lightPunch',
+    dashPunch: 'lightPunch',
+    lowPunch: 'lightPunch',
+    straight: 'heavyPunch',
+    airPunch: 'lightPunch',
+    kick: 'kick',
+    dashKick: 'kick',
+    sweep: 'kick',
+    grab: 'grab',
+    super: 'super',
+    rising: 'lightPunch',
+});
+
+//  Per-difficulty tuning defaults (overridden by the character's `ai` config block)
 const DEFAULT_TUNING = Object.freeze({
     preferredRange: 90,
     blockProbability: 0.5,
@@ -38,27 +53,21 @@ const DEFAULT_TUNING = Object.freeze({
     mistakeChance: 0.15,
     aggressionMult: 1.0,
     comboWindow: 20,
+    antiAirChance: 0.1,
 });
 
 /**
  * AIController — drives an enemy fighter through a VirtualInput buffer.
  *
  * Instead of manipulating fighter state directly, the AI presses semantic
- * actions (moveLeft, moveRight, jump, block, lightPunch, heavyPunch,
- * sweepKick) and the fighter's own state machine resolves them exactly as
- * it would for a human player.
+ * actions (moveLeft, moveRight, jump, crouch, lightPunch, heavyPunch, kick,
+ * grab, super) and the fighter's own state machine resolves them exactly as it
+ * would for a human player.
  *
  * Difficulty tuning is merged from three sources (last wins):
  *   1. DEFAULT_TUNING (hardcoded)
  *   2. The character config's `ai` block (per-difficulty overrides)
  *   3. SettingsStore difficulty (live-switchable)
- *
- * AI States:
- *   approach  — close the gap until preferred attack range is reached
- *   pressure  — in range; attacks and follows up on hits
- *   defensive — opponent is attacking nearby; block or jump back
- *   retreat   — temporarily back away to reset spacing
- *   punish    — opponent just finished a whiffed attack; go in hard
  */
 export default class AIController {
     /**
@@ -71,25 +80,19 @@ export default class AIController {
         this.opponent = opponent;
         this._characterConfig = opts.characterConfig ?? {};
 
-        // VirtualInput the fighter will read each frame
         this._input = new VirtualInput();
-
-        // Merged tuning (apply defaults → config → difficulty)
         this._tuning = { ...DEFAULT_TUNING };
         this._applyCharacterTuning();
         this.setDifficulty(opts.difficulty ?? 'normal');
 
-        // Internal AI state
         this._aiState = 'approach';
         this._stateTimer = 0;
         this._reactionTimer = 0;
-        this._comboTimer = 0;
         this._retreatTimer = 0;
-        this._blockHold = 0;        // frames to keep block held
+        this._blockHold = 0; // frames to hold the block (move-away) direction
         this._prevOpponentHealth = opponent.health;
-
-        // Active attack being tracked (for follow-up decisions)
-        this._activeAttack = null;
+        this._prevOpponentState = 'idle';
+        this._comboTimer = 0;
     }
 
     //  Difficulty 
@@ -102,12 +105,23 @@ export default class AIController {
         this._applyCharacterTuning();
         const diffOverrides = this._characterConfig.ai?.[level] ?? {};
         Object.assign(this._tuning, diffOverrides);
+        if (level === 'boss') {
+            // Boss-specific tuning layered on top of hard
+            Object.assign(this._tuning, {
+                preferredRange: 60,
+                blockProbability: 0.9,
+                reactionDelay: 1,
+                mistakeChance: 0.0,
+                aggressionMult: 2.2,
+                comboWindow: 40,
+            });
+        }
     }
 
     /** Apply the character config's `ai` block (non-difficulty-specific keys). */
     _applyCharacterTuning() {
         const aiCfg = this._characterConfig.ai ?? {};
-        const { easy, normal, hard, ...base } = aiCfg;
+        const { easy, normal, hard, boss, ...base } = aiCfg;
         Object.assign(this._tuning, base);
     }
 
@@ -115,11 +129,10 @@ export default class AIController {
         this._aiState = 'approach';
         this._stateTimer = 0;
         this._reactionTimer = 0;
-        this._comboTimer = 0;
         this._retreatTimer = 0;
         this._blockHold = 0;
-        this._activeAttack = null;
         this._prevOpponentHealth = this.opponent.health;
+        this._prevOpponentState = 'idle';
         this._releaseAll();
     }
 
@@ -130,31 +143,16 @@ export default class AIController {
         const p = this.opponent;
         const t = this._tuning;
 
-        // Dead — no decisions
         if (f.state === 'ko') return;
-        // Mid-attack — let it play out
-        if (['attack_startup', 'attack_active', 'attack_recovery'].includes(f.state)) return;
-        // Hitstun — physics handles recovery
+        if (['attack_startup', 'attack_active', 'attack_recovery', 'grab', 'super'].includes(f.state)) return;
         if (f.state === 'hitstun' && f.stunTimer > 0) return;
-        // In the air — no decisions while airborne
         if (f.state === 'jump_rise' || f.state === 'jump_fall') return;
 
-        // Tick timers
         this._stateTimer++;
         if (this._reactionTimer > 0) this._reactionTimer--;
-        if (this._comboTimer > 0) this._comboTimer--;
         if (this._retreatTimer > 0) this._retreatTimer--;
 
-        // Handle block hold release
-        if (this._blockHold > 0) {
-            this._blockHold--;
-            if (this._blockHold <= 0) {
-                this._input.up('block');
-            }
-            return; // hold position while blocking
-        }
-
-        // Detect landed hit (opponent HP dropped)
+        // Detect landed hit → open combo window
         if (p.health < this._prevOpponentHealth) {
             this._comboTimer = t.comboWindow;
         }
@@ -165,47 +163,47 @@ export default class AIController {
 
         const dx = p.x - f.x;
         const absDx = Math.abs(dx);
+        // Body-aware spacing: two fighters standing adjacent are ~250px apart
+        // centre-to-centre, so range checks use the gap between the body boxes
+        // (0 = touching) instead of raw centre distance.
+        const gap = Math.max(0, absDx - (f.width + p.width) / 2);
         const panicking = f.health / f.maxHealth < 0.3;
+
+        const opponentAttacking = ['attack_startup', 'attack_active'].includes(p.state);
+        const opponentAirborne = p.state === 'jump_rise' || p.state === 'jump_fall';
 
         //  Choose AI state 
 
-        const opponentAttacking = ['attack_startup', 'attack_active'].includes(p.state);
-        if (opponentAttacking && absDx < t.preferredRange + 30 && !panicking) {
+        if (opponentAirborne && gap < t.preferredRange + 40 && Math.random() < t.antiAirChance) {
+            this._transitionTo('air');
+        } else if (opponentAttacking && gap < t.preferredRange + 30 && !panicking) {
             this._transitionTo('defensive');
-        } else if (p.state === 'attack_recovery' && absDx < t.preferredRange + 40) {
+        } else if (p.state === 'attack_recovery' && gap < t.preferredRange + 40) {
             this._transitionTo('punish');
-        } else if (this._comboTimer > 0 && absDx <= t.preferredRange) {
+        } else if ((this._comboTimer > 0 || gap <= t.preferredRange) && !panicking) {
             this._transitionTo('pressure');
-        } else if (absDx <= t.preferredRange) {
-            this._transitionTo('pressure');
-        } else {
-            if (!panicking && this._retreatTimer > 0) {
-                this._transitionTo('retreat');
-            } else {
-                this._transitionTo('approach');
-            }
+        } else if (gap > t.preferredRange) {
+            if (!panicking && this._retreatTimer > 0) this._transitionTo('retreat');
+            else this._transitionTo('approach');
         }
 
         //  Execute current AI state 
 
         switch (this._aiState) {
-            case 'approach': this._doApproach(f, dx, absDx); break;
-            case 'pressure': this._doPressure(f, absDx); break;
+            case 'approach': this._doApproach(f, dx, gap); break;
+            case 'pressure': this._doPressure(f, dx, gap); break;
             case 'defensive': this._doDefensive(f, dx); break;
             case 'retreat': this._doRetreat(f, dx); break;
-            case 'punish': this._doPunish(f); break;
+            case 'punish': this._doPunish(f, dx, gap); break;
+            case 'air': this._doAir(f, dx); break;
         }
 
-        // Face the opponent (via movement direction)
-        if (f.state !== 'block') {
-            f.facingRight = dx > 0;
-        }
+        // (Facing is owned by Game._updateFighters — both fighters always face
+        // their opponent, so the AI never needs to manage facing itself.)
 
         // Sync virtual input update for justPressed detection
         this._input.update();
     }
-
-    //  State transitions 
 
     _transitionTo(newState) {
         if (this._aiState !== newState) {
@@ -214,16 +212,16 @@ export default class AIController {
         }
     }
 
-    //  Release all held actions 
-
     _releaseAll() {
         this._input.up('moveLeft');
         this._input.up('moveRight');
         this._input.up('jump');
-        this._input.up('block');
+        this._input.up('crouch');
         this._input.up('lightPunch');
         this._input.up('heavyPunch');
-        this._input.up('sweepKick');
+        this._input.up('kick');
+        this._input.up('grab');
+        this._input.up('super');
     }
 
     //  AI state behaviours — all emit actions via VirtualInput 
@@ -231,7 +229,6 @@ export default class AIController {
     _doApproach(f, dx, absDx) {
         const t = this._tuning;
 
-        // Occasionally jump forward
         if (Math.random() < t.jumpProbability && f.onGround) {
             this._releaseAll();
             this._input.down(dx > 0 ? 'moveRight' : 'moveLeft');
@@ -239,12 +236,16 @@ export default class AIController {
             return;
         }
 
-        // Walk toward opponent
         this._releaseAll();
         this._input.down(dx > 0 ? 'moveRight' : 'moveLeft');
     }
 
-    _doPressure(f, absDx) {
+    /** Max body-gap at which attack hitboxes still connect with the hurtbox.
+     *  Cores are contact-accurate now: normal attacks reach ~10px past the
+     *  opponent's core at body contact, so the AI closes to near-touching. */
+    static ATTACK_CONTACT_GAP = 4;
+
+    _doPressure(f, dx, gap) {
         const t = this._tuning;
 
         if (f.attackCooldown > 0) {
@@ -252,26 +253,41 @@ export default class AIController {
             return;
         }
 
-        const attack = this._choosePressureAttack(absDx);
+        // Out of contact range → walk in first (attacking from preferredRange
+        // only whiffs in front of the opponent).
+        if (gap > AIController.ATTACK_CONTACT_GAP) {
+            this._releaseAll();
+            this._input.down(dx > 0 ? 'moveRight' : 'moveLeft');
+            return;
+        }
+
+        const attack = this._choosePressureAttack(gap);
         if (attack) {
             this._releaseAll();
-            this._input.down(attack);
+            this._input.down(MOVE_TO_ACTION[attack] ?? attack);
         } else {
             this._releaseAll();
+        }
+
+        // Super usage: full meter + opponent in hitstun → slam them
+        if (f.superMeter >= 100 && this._opponentInHitstun()) {
+            this._releaseAll();
+            this._input.down('super');
+            return;
         }
     }
 
     _doDefensive(f, dx) {
         const t = this._tuning;
-
         if (this._reactionTimer > 0) return;
 
+        // Hold back (away from opponent) to block — crouch to block lows
         if (Math.random() < t.blockProbability && f.onGround) {
             this._releaseAll();
-            this._input.down('block');
-            this._blockHold = 20; // hold block for ~20 frames
+            this._input.down(dx > 0 ? 'moveLeft' : 'moveRight'); // hold back
+            if (Math.random() < 0.35) this._input.down('crouch');
+            this._blockHold = 20;
         } else {
-            // Jump back
             this._releaseAll();
             this._input.down(dx > 0 ? 'moveLeft' : 'moveRight');
             this._input.down('jump');
@@ -281,23 +297,41 @@ export default class AIController {
     }
 
     _doRetreat(f, dx) {
-        if (this._retreatTimer <= 0) return;
         this._releaseAll();
         this._input.down(dx > 0 ? 'moveLeft' : 'moveRight');
     }
 
-    _doPunish(f) {
+    _doPunish(f, dx, gap) {
         if (f.attackCooldown > 0) {
             this._releaseAll();
             return;
         }
+        // Walk into contact range first — a punish launched at 130px away whiffs
+        if (gap > AIController.ATTACK_CONTACT_GAP) {
+            this._releaseAll();
+            this._input.down(dx > 0 ? 'moveRight' : 'moveLeft');
+            return;
+        }
         const punishMove = this._aiAttacks().find(a => a.aiPunish)
-            ?? this._aiAttacks().find(a => a.name === 'heavyPunch')
+            ?? this._aiAttacks().find(a => a.name === 'straight')
             ?? this._aiAttacks()[0];
         if (punishMove) {
             this._releaseAll();
-            this._input.down(punishMove.name === 'heavyPunch' ? 'heavyPunch' : punishMove.name);
+            this._input.down(MOVE_TO_ACTION[punishMove.name] ?? punishMove.name);
         }
+    }
+
+    _doAir(f, dx) {
+        // Anti-air: jump toward the airborne opponent and throw an air attack
+        this._releaseAll();
+        this._input.down(dx > 0 ? 'moveRight' : 'moveLeft');
+        this._input.down('jump');
+        this._input.down('lightPunch');
+    }
+
+    _opponentInHitstun() {
+        const p = this.opponent;
+        return (p.state === 'hitstun' && p.stunTimer > 0) || p.state === 'ko';
     }
 
     //  Attack selection 
@@ -309,15 +343,14 @@ export default class AIController {
     _choosePressureAttack(absDx) {
         const t = this._tuning;
 
-        // Pool = AI-usable attacks, excluding strictly-air moves.
         const pool = this._aiAttacks()
             .filter(a => !a.aiAirOnly)
+            // Random pressure attacks never pick grab or super — those come
+            // from dedicated AI decisions (punish / desperation), not roulette.
+            .filter(a => a.name !== 'grab' && a.name !== 'super')
             .sort((a, b) => (a.aiPriority ?? Infinity) - (b.aiPriority ?? Infinity));
         if (pool.length === 0) return null;
 
-        // Pick by absolute thresholds (old heavy/sweep/light tiers); the
-        // first attack whose aiPriority exceeds the roll wins. Default Infinity
-        // entries are the catch-all filler.
         const roll = Math.random() * t.aggressionMult;
         for (const a of pool) {
             if (roll < (a.aiPriority ?? Infinity)) return a.name;

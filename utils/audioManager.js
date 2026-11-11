@@ -88,7 +88,8 @@ export default class AudioManager {
     playSFX(key, { volume = 1.0, playbackRate = 1.0 } = {}) {
         const buffer = this._buffers.get(key);
         if (!buffer) {
-            console.warn(`[AudioManager] No buffer for SFX key "${key}"`);
+            // Generated WebAudio fallback (no asset loaded / missing file)
+            this.playTone({ type: key === 'super' ? 'sawtooth' : key === 'hit' ? 'square' : 'sine', freq: key === 'super' ? 90 : 220, freqEnd: key === 'super' ? 40 : 180, dur: key === 'super' ? 0.9 : 0.12, vol: volume });
             return;
         }
 
@@ -103,6 +104,27 @@ export default class AudioManager {
 
         source.connect(gain).connect(this._sfxGain);
         source.start(0);
+    }
+
+    /**
+     * Plays a synthesized tone (used as a fallback when no asset is loaded).
+     * @param {{ type?: OscillatorType, freq?: number, freqEnd?: number, dur?: number, vol?: number, delay?: number }} opts
+     */
+    playTone({ type = 'sine', freq = 220, freqEnd = freq, dur = 0.12, vol = 1, delay = 0 } = {}) {
+        this.resumeContext();
+        const t0 = this._ctx.currentTime + (delay ?? 0);
+        const osc = this._ctx.createOscillator();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, t0);
+        if (freqEnd !== undefined && freqEnd !== freq) {
+            osc.frequency.exponentialRampToValueAtTime(Math.max(1, freqEnd), t0 + dur);
+        }
+        const gain = this._ctx.createGain();
+        gain.gain.setValueAtTime(vol, t0);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+        osc.connect(gain).connect(this._sfxGain);
+        osc.start(t0);
+        osc.stop(t0 + dur + 0.02);
     }
 
     /**

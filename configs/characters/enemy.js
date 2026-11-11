@@ -18,10 +18,13 @@ export const ENEMY_CHARACTER = Object.freeze({
     physics: { ...BASE_PHYSICS },
 
     controls: Object.freeze({
-        lightPunch: 'lightPunch',
-        heavyPunch: 'heavyPunch',
-        sweepKick: 'sweepKick',
-        airPunch: 'airPunch',
+        lightPunch: 'jab',
+        heavyPunch: 'straight',
+        kick:        'kick',
+        sweepKick:   'sweep',
+        airPunch:    'airPunch',
+        grab:        'grab',
+        super:       'super',
     }),
 
     audio: Object.freeze({
@@ -30,6 +33,9 @@ export const ENEMY_CHARACTER = Object.freeze({
         hit: Object.freeze({ ref: 'hit' }),
         block: Object.freeze({ ref: 'block' }),
         ko: Object.freeze({ ref: 'ko' }),
+        super: Object.freeze({ ref: 'super' }),
+        counter: Object.freeze({ ref: 'counter' }),
+        grab: Object.freeze({ ref: 'grab' }),
     }),
 
     start: {

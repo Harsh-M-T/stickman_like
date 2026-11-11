@@ -1,16 +1,21 @@
 import { CONFIG } from '../configs/config.js';
 
 /**
- * HUD — health bars (with ghost bar), name plates, round info, and win pips.
- * Pure rendering: receives a plain state object each frame.
+ * HUD — health bars (with ghost bar), SHAKTI meter, name plates, round info,
+ * win pips, round timer and combo counter. Pure rendering: receives a plain
+ * state object each frame.
  */
 export default class HUD {
     /**
      * @param {CanvasRenderingContext2D} ctx
      * @param {{
      *   playerHealth: number, playerGhostHP: number, playerMaxHealth: number,
-     *   enemyHealth: number,  enemyGhostHP:  number,  enemyMaxHealth:  number,
+     *   enemyHealth: number,  enemyGhostHP: number,  enemyMaxHealth: number,
+     *   playerSuperMeter: number, enemySuperMeter: number,
+     *   playerGuardMeter: number, enemyGuardMeter: number,
      *   playerWins: number, enemyWins: number, round: number,
+     *   timeMs: number,
+     *   comboCount: number, comboTimer: number, comboOwner: string|null,
      * }} s
      */
     draw(ctx, s) {
@@ -35,7 +40,15 @@ export default class HUD {
         ctx.restore();
 
         // Round + score indicator (top center)
-        this._drawRoundInfo(ctx, s.round, s.playerWins, s.enemyWins);
+        this._drawRoundInfo(ctx, s.round, s.playerWins, s.enemyWins, s.timeMs);
+
+        // SHAKTI meter (super) — segmented bar, clearly filling
+        this._drawSuperMeter(ctx, CONFIG.canvasWidth / 2, CONFIG.canvasHeight - 46, 220, 12, s.playerSuperMeter, s.playerGuardMeter);
+
+        // Combo counter (only when combo > 2 hits)
+        if (s.comboCount > 2 && s.comboTimer > 0) {
+            this._drawComboCounter(ctx, s.comboCount, s.comboTimer);
+        }
     }
 
     _drawHealthBar(ctx, x, y, w, h, hp, ghostHp, maxHp) {
@@ -71,10 +84,16 @@ export default class HUD {
         ctx.restore();
     }
 
-    _drawRoundInfo(ctx, round, playerWins, enemyWins) {
+    _drawRoundInfo(ctx, round, playerWins, enemyWins, timeMs) {
         const cx = CONFIG.canvasWidth / 2;
         ctx.save();
         ctx.textAlign = 'center';
+
+        // Round timer
+        const secs = Math.max(0, Math.ceil(timeMs / 1000));
+        ctx.font = `bold 16px 'Jersey 10', sans-serif`;
+        ctx.fillStyle = secs <= 10 ? '#ef4444' : '#c4b5fd';
+        ctx.fillText(`${secs}`, cx + 30, 34);
 
         // Round label
         ctx.font = `bold 14px 'Jersey 10', sans-serif`;
@@ -84,7 +103,7 @@ export default class HUD {
         // Win pips
         const pipR = 5;
         const pipGap = 14;
-        const total = CONFIG.roundsToWin;
+        const total = 2;
         const rowY = 34;
 
         // Player pips (left of center)
@@ -101,6 +120,42 @@ export default class HUD {
             ctx.fillStyle = i < enemyWins ? '#ef4444' : 'rgba(255,255,255,0.2)';
             ctx.fill();
         }
+        ctx.restore();
+    }
+
+    _drawSuperMeter(ctx, x, y, w, h, meter, guardMeter) {
+        const segW = w / 10;
+        const segH = h;
+        ctx.save();
+        // Background
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
+        // Segments
+        for (let i = 0; i < 10; i++) {
+            const filled = meter >= (i + 1) * 10;
+            ctx.fillStyle = filled ? (guardMeter > 0 ? '#c084fc' : '#7c3aed') : 'rgba(255,255,255,0.12)';
+            ctx.fillRect(x - 2 + i * segW, y, segW, h);
+        }
+        // Fill bar on top (continuous glow)
+        const frac = Math.max(0, Math.min(1, meter / 100));
+        ctx.fillStyle = '#e9d5ff';
+        ctx.shadowColor = '#c084fc';
+        ctx.shadowBlur = 8;
+        ctx.fillRect(x - 2, y, (w + 4) * frac, h);
+        ctx.restore();
+    }
+
+    _drawComboCounter(ctx, count, timer) {
+        const W = CONFIG.canvasWidth;
+        const frac = timer > 0 ? timer / 90 : 0;
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, frac * 2);
+        ctx.textAlign = 'left';
+        ctx.font = `bold 28px 'Jersey 10', sans-serif`;
+        ctx.shadowColor = '#fbbf24';
+        ctx.shadowBlur = 15;
+        ctx.fillStyle = '#fef08a';
+        ctx.fillText(`${count} HITS!`, 30, CONFIG.canvasHeight - 40);
         ctx.restore();
     }
 }

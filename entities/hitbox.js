@@ -3,6 +3,11 @@ import { aabbOverlap } from '../utils/math.js';
 /**
  * Hitbox — an axis-aligned bounding box spawned by a Fighter during an attack.
  * Lives for a fixed number of frames and can only hit each target once.
+ *
+ * Horizontal anchoring is relative to the fighter's FRONT edge (the side facing
+ * the opponent), so the same `offsetX` (reach, px past the front edge) works at
+ * any body width and for either facing. The box extends backward (toward the
+ * attacker) by `width`, ending exactly at `offsetX` px past the front edge.
  */
 export default class Hitbox {
     /**
@@ -20,6 +25,7 @@ export default class Hitbox {
      */
     constructor({ owner, offsetX, offsetY, width, height, damage, knockbackX, knockbackY, durationFrames }) {
         this.owner = owner;
+        /** Reach — px the hitbox extends past the attack's front edge. */
         this.offsetX = offsetX;
         this.offsetY = offsetY;
         this.width = width;
@@ -44,9 +50,10 @@ export default class Hitbox {
 
     getBounds() {
         const { owner, offsetX, width } = this;
+        const front = owner.facingRight ? owner.x + owner.width : owner.x;
         const x = owner.facingRight
-            ? owner.x + offsetX
-            : owner.x + owner.width - offsetX - width;
+            ? front + offsetX - width
+            : front - offsetX;
         const y = owner.y + this.offsetY;
         return { x, y, width: this.width, height: this.height };
     }

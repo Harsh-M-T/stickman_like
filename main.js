@@ -8,6 +8,7 @@ import AudioManager from './utils/audioManager.js';
 import UIManager from './ui/uiManager.js';
 import MobileControls from './ui/mobileControls.js';
 import DebugControls from './debug/debugControls.js';
+import { PLAYER_ROSTER } from './configs/characters/index.js';
 
 // Canvas setup
 
@@ -31,29 +32,6 @@ ctx.fillText('Loading…', CONFIG.canvasWidth / 2, CONFIG.canvasHeight / 2);
 // Bootstrap — single entry point. Compose everything here, no `window.game`
 // global; OrientationGuard closes over the game instance it needs.
 //
-
-window.addEventListener('load', () => {
-    // SettingsStore → Audio → Assets → Game → UI
-    const bus = new EventBus();
-    const input = new InputHandler();
-    const settingsStore = new SettingsStore({ eventBus: bus });
-    const audio = new AudioManager({ settingsStore });
-
-    const debug = CONFIG.debug ? new DebugControls({ bus }) : null;
-    const game = new Game({ renderer, bus, audio, input, settingsStore, debug });
-
-    // UI → Game wiring: UIManager emits ui:* events, Game reacts.
-    bus.on('ui:startGame', () => game.startGame());
-    bus.on('ui:pauseGame', () => game.pauseGame());
-    bus.on('ui:resumeGame', () => game.resumeGame());
-    bus.on('ui:quitToMenu', () => game.stopGame());
-    bus.on('ui:rematch', () => game.rematch());
-
-    new UIManager({ bus, audio, settingsStore });
-    new MobileControls({ input });
-
-    new OrientationGuard(game);
-});
 
 /**
  * OrientationGuard — shows the "rotate device" overlay in portrait and pauses
@@ -85,3 +63,32 @@ class OrientationGuard {
         }
     }
 }
+
+window.addEventListener('load', () => {
+    // SettingsStore → Audio → Game → UI
+    const bus = new EventBus();
+    const input = new InputHandler();
+    const settingsStore = new SettingsStore({ eventBus: bus });
+    const audio = new AudioManager({ settingsStore });
+
+    const debug = CONFIG.debug ? new DebugControls({ bus }) : null;
+    const game = new Game({ renderer, bus, audio, input, settingsStore, debug, characterId: 'player', stageId: 'street' });
+
+    // UI → Game wiring: UIManager emits ui:* events, Game reacts.
+    bus.on('ui:startGame', () => game.startFight());
+    bus.on('ui:fight', (payload) => {
+        if (payload?.characterId) game.selectCharacter(payload.characterId);
+        if (payload?.stageId) game.selectStage(payload.stageId);
+        if (payload?.difficulty) game.setDifficulty(payload.difficulty);
+        game.startFight();
+    });
+    bus.on('ui:pauseGame', () => game.pauseGame());
+    bus.on('ui:resumeGame', () => game.resumeGame());
+    bus.on('ui:quitToMenu', () => game.stopGame());
+    bus.on('ui:rematch', () => game.rematch());
+
+    new UIManager({ bus, audio, settingsStore, characters: PLAYER_ROSTER });
+    new MobileControls({ input });
+
+    new OrientationGuard(game);
+});

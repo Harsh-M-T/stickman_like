@@ -1,8 +1,8 @@
 import { CONFIG } from '../configs/config.js';
 
 /**
- * Overlays — full-screen drawn layers: round intro, game-over, and combo text.
- * Pure rendering: receives a plain state object each frame.
+ * Overlays — full-screen drawn layers: round intro, KO banner, game-over and
+ * combo text. Pure rendering: receives plain state objects each frame.
  */
 export default class Overlays {
     /**
@@ -39,12 +39,11 @@ export default class Overlays {
 
     /**
      * @param {CanvasRenderingContext2D} ctx
-     * @param {{ winner: string|null, playerWins: number, enemyWins: number }} s
+     * @param {{ winner: string|null, playerWins: number, enemyWins: number, matchOver?: boolean }} s
      */
     drawGameOver(ctx, s) {
         const W = CONFIG.canvasWidth;
         const H = CONFIG.canvasHeight;
-        const matchOver = s.playerWins >= CONFIG.roundsToWin || s.enemyWins >= CONFIG.roundsToWin;
 
         ctx.fillStyle = 'rgba(0,0,0,0.65)';
         ctx.fillRect(0, 0, W, H);
@@ -52,9 +51,8 @@ export default class Overlays {
         ctx.save();
         ctx.textAlign = 'center';
 
-        // Result text
         let resultText;
-        if (matchOver) {
+        if (s.matchOver) {
             resultText = s.playerWins >= CONFIG.roundsToWin ? 'YOU WIN THE MATCH!' : 'ENEMY WINS THE MATCH';
         } else {
             resultText = s.winner === 'player' ? 'ROUND WIN!' : 'ROUND LOST';
@@ -75,24 +73,47 @@ export default class Overlays {
         // Rematch hint
         ctx.font = `18px 'Jersey 10', sans-serif`;
         ctx.fillStyle = 'rgba(255,255,255,0.6)';
-        ctx.fillText(matchOver ? 'Press REMATCH to play again' : 'Press NEXT ROUND or QUIT', W / 2, H / 2 + 55);
+        ctx.fillText(s.matchOver ? 'Press REMATCH to play again' : 'Press NEXT ROUND or QUIT', W / 2, H / 2 + 55);
+        ctx.restore();
+    }
+
+    /**
+     * KO banner — drawn during the slow-mo KO delay before the round settles.
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {{ timer: number }} s — remaining KO delay in frames
+     */
+    drawKO(ctx, s = { timer: 0 }) {
+        const W = CONFIG.canvasWidth;
+        const H = CONFIG.canvasHeight;
+        const t = 1 - s.timer / (CONFIG.koDelayMs / (1000 / 60));
+
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, t * 1.5));
+        ctx.font = `bold 96px 'Jersey 10', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#ef4444';
+        ctx.shadowBlur = 40;
+        ctx.fillStyle = '#fecaca';
+        ctx.fillText('K.O.', W / 2, H / 2);
         ctx.restore();
     }
 
     /**
      * @param {CanvasRenderingContext2D} ctx
-     * @param {number} count
+     * @param {{ count: number, timer: number }} s
      */
-    drawCombo(ctx, count) {
-        if (count < 2) return;
+    drawCombo(ctx, s) {
+        if (s.count < 2) return;
         const W = CONFIG.canvasWidth;
+        const frac = s.timer > 0 ? s.timer / 90 : 0;
         ctx.save();
+        ctx.globalAlpha = Math.min(1, frac * 2);
         ctx.textAlign = 'center';
         ctx.font = `bold 28px 'Jersey 10', sans-serif`;
         ctx.shadowColor = '#fbbf24';
         ctx.shadowBlur = 15;
         ctx.fillStyle = '#fef08a';
-        ctx.fillText(`${count}-HIT COMBO!`, W / 2, CONFIG.canvasHeight - 30);
+        ctx.fillText(`${s.count} HITS!`, W / 2, CONFIG.canvasHeight - 30);
         ctx.restore();
     }
 }

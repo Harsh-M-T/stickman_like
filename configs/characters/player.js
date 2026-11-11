@@ -12,23 +12,25 @@ export const PLAYER_CHARACTER = Object.freeze({
     attacks: BASE_ATTACKS,
     physics: { ...BASE_PHYSICS },
 
-    // Input action → attack name. Adding a new attack style = append an
-    // attack entry here and (optionally) point an action at it.
     controls: Object.freeze({
-        lightPunch: 'lightPunch',
-        heavyPunch: 'heavyPunch',
-        sweepKick: 'sweepKick',
-        airPunch: 'airPunch',
+        lightPunch: 'jab',
+        heavyPunch: 'straight',
+        kick:        'kick',
+        sweepKick:   'sweep',
+        airPunch:    'airPunch',
+        grab:        'grab',
+        super:       'super',
     }),
 
-    // Sound effects for this character. `ref` reuses a shared GAME_AUDIO.sfx
-    // key; provide `urls` to load a character-specific sound instead.
     audio: Object.freeze({
         jump: Object.freeze({ ref: 'jump' }),
         punch: Object.freeze({ ref: 'punch' }),
         hit: Object.freeze({ ref: 'hit' }),
         block: Object.freeze({ ref: 'block' }),
         ko: Object.freeze({ ref: 'ko' }),
+        super: Object.freeze({ ref: 'super' }),
+        counter: Object.freeze({ ref: 'counter' }),
+        grab: Object.freeze({ ref: 'grab' }),
     }),
 
     start: {

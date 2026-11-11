@@ -5,7 +5,7 @@
  */
 export class AnimationController {
     /**
-     * @param {Record<string, { frameCount: number, frameDuration: number, loop: boolean, imageKeys: string[] }>} animationsConfig
+     * @param {Record<string, { frameCount: number, frameDuration: number, loop: boolean, imageKeys: string[], drawOffsetY?: number, color?: string }>} animationsConfig
      * @param {import('../utils/assetLoader.js').default} assetLoader
      */
     constructor(animationsConfig, assetLoader) {
@@ -57,17 +57,33 @@ export class AnimationController {
     draw(ctx, x, y, width, height, facingRight = true, drawOffsetY) {
         const anim = this._config[this.current];
         if (!anim) {
-            ctx.fillStyle = '#888';
+            ctx.fillStyle = anim?.color ?? '#888';
             ctx.fillRect(x, y, width, height);
             return;
         }
 
         const imageKey = anim.imageKeys[this._frameIndex];
-        const img = this._loader.getImage(imageKey);
+        const img = this._loader?.getImage(imageKey);
 
         if (!img) {
-            ctx.fillStyle = '#f0f';
-            ctx.fillRect(x, y, width, height);
+            // Procedural fallback stickman in the character's color
+            const color = anim.color ?? '#888';
+            const cy = y + (drawOffsetY ?? anim.drawOffsetY ?? 70);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(x + width / 2, cy + 12, 11, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x + width / 2, cy + 22);
+            ctx.lineTo(x + width / 2, cy + 68);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x + 14, cy + 34);
+            ctx.lineTo(x + 30, cy + 44);
+            ctx.moveTo(x + width - 14, cy + 34);
+            ctx.lineTo(x + width - 30, cy + 44);
+            ctx.stroke();
             return;
         }
 
